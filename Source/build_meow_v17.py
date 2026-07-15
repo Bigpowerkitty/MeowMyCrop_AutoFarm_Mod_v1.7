@@ -143,9 +143,8 @@ def make_update_body():
     emit_toggle(il,288,T['KEY_AUTOFARM'],T['KEY_AUTOFARM'],'after_f7') # F7
     emit_toggle(il,289,T['KEY_AUTOCAN'],T['KEY_AUTOCAN'],'after_f8') # F8
 
-    # Internal A-key message every 4 frames, independently gated by F6 setting.
+    # Internal A-key message every game frame, independently gated by F6 setting.
     il.token(0x72,T['KEY_AUTOKEY']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'after_auto_key')
-    il.token(0x28,T['Time.frameCount']); il.b(0x1A,0x5D); il.branch(0x3A,'after_auto_key')
     il.token(0x28,T['MessageManager.Instance']); il.i1(65)
     il.token(0x28,T['KeyClickMessage.Obtain']); il.token(0x6F,T['MessageManager.Dispatch'])
     il.label('after_auto_key')
@@ -353,7 +352,15 @@ fast2_v17_hashes={
     '20':'206d4661a30b756f1cc4c8f5510afa55032b7d3522bd00e88315d943dec56332',
     '50':'ec50300f5f1eff5c97bf7819a41099814f3ea8c61eb6420a4a48b0f7d9415808',
 }
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+fast4_v17_hashes={
+    '1':'205747ca878c7bc0a556bb5f60a95bd12a0e0573cacc0dab677b36f2bae45d84',
+    '2':'3cf164a47412ab6469fd760ba20a0e36c928b06927885f1c9b63d3b5fc0b3fbb',
+    '5':'8d874640e02f50b67a9a8a303d3754b76577955651b6a0ac39f4c8c2d266d87a',
+    '10':'a77aa04df07e0a1db950d07a93edebff75af99221a69481e55648074be0eedc6',
+    '20':'0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11',
+    '50':'281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32',
+}
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
@@ -396,13 +403,14 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
 block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast2Hashes.Keys) {\n        if ($legacyV17Fast2Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
+block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast4Hashes.Keys) {\n        if ($legacyV17Fast4Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 ps1=ps1[:pos]+block17+'\n'+block16+'\n'+ps1[pos:]
 ps1=ps1.replace('$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash', '$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash\n    $legacyV16Speed = Detect-Legacy-V16-Speed $currentHash\n    $legacyV17Speed = Detect-Legacy-V17-Speed $currentHash')
 ps1=ps1.replace('($legacyV15Speed -eq 0) -and (-not $isLegacyV10)', '($legacyV15Speed -eq 0) -and ($legacyV16Speed -eq 0) -and ($legacyV17Speed -eq 0) -and (-not $isLegacyV10)')
