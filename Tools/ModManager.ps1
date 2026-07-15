@@ -16,6 +16,7 @@ $variantHashes = @{
     "10" = "746e1fb4c0ce92bbd1e61e8347415c0cd4965b1a69cc3c4e0ee41e3d8fb6baf6"
     "20" = "a1822fea9c384655de53a957b8d8aff702be64bc8f382f9cb2f34ec00cc1f962"
     "50" = "4ea6d68c7a69dbe9218a5f2dc06c77cdc0c8e593ed541d38c92846922766826b"
+    "500" = "55c2904d9cf97281c428af5e0f36dd8fa3787e2d4f79283b5748ce13e273511c"
 }
 
 $legacyV17Hashes = @{
@@ -264,10 +265,11 @@ function Select-Speed([int]$DefaultSpeed = 10) {
     Write-Host '  4 = 10x  (recommended)'
     Write-Host '  5 = 20x'
     Write-Host '  6 = 50x  (very fast)'
-    $map = @{ '1'=1; '2'=2; '3'=5; '4'=10; '5'=20; '6'=50 }
-    $choice = Read-Host "Enter 1-6 [default: 4 / ${DefaultSpeed}x]"
+    Write-Host '  7 = 500x (extreme)'
+    $map = @{ '1'=1; '2'=2; '3'=5; '4'=10; '5'=20; '6'=50; '7'=500 }
+    $choice = Read-Host "Enter 1-7 [default: 4 / ${DefaultSpeed}x]"
     if ([string]::IsNullOrWhiteSpace($choice)) { return $DefaultSpeed }
-    if (-not $map.ContainsKey($choice)) { throw 'Invalid speed selection. Enter a number from 1 to 6.' }
+    if (-not $map.ContainsKey($choice)) { throw 'Invalid speed selection. Enter a number from 1 to 7.' }
     return [int]$map[$choice]
 }
 

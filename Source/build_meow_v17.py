@@ -329,7 +329,7 @@ def patch(speed,outfile):
     outfile.write_bytes(raw)
     return hashlib.sha256(raw).hexdigest()
 
-speeds=[1,2,5,10,20,50]
+speeds=[1,2,5,10,20,50,500]
 hashes={}
 for s in speeds:
     out=MODDIR/f'Assembly-CSharp_{s}x.dll'
@@ -398,7 +398,8 @@ for s in speeds: validate(MODDIR/f'Assembly-CSharp_{s}x.dll',s)
 ps1=(V16ROOT/'Tools'/'ModManager.ps1').read_text(encoding='utf-8-sig')
 def map_block(name,m):
     lines=[f'${name} = @{{']
-    for k in ['1','2','5','10','20','50']: lines.append(f'    "{k}" = "{m[k]}"')
+    keys=['1','2','5','10','20','50'] + (['500'] if '500' in m else [])
+    for k in keys: lines.append(f'    "{k}" = "{m[k]}"')
     lines.append('}')
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
@@ -428,6 +429,10 @@ insert_upgrades='''    if ($legacyV17Speed -gt 0) {
 '''
 ps1=ps1.replace(needle,insert_upgrades+needle,1)
 ps1=ps1.replace('$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }', '$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV17Speed -gt 0) { $legacyV17Speed } elseif ($legacyV16Speed -gt 0) { $legacyV16Speed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }')
+ps1=ps1.replace("    Write-Host '  6 = 50x  (very fast)'", "    Write-Host '  6 = 50x  (very fast)'\n    Write-Host '  7 = 500x (extreme)'")
+ps1=ps1.replace("$map = @{ '1'=1; '2'=2; '3'=5; '4'=10; '5'=20; '6'=50 }", "$map = @{ '1'=1; '2'=2; '3'=5; '4'=10; '5'=20; '6'=50; '7'=500 }")
+ps1=ps1.replace('Enter 1-6', 'Enter 1-7')
+ps1=ps1.replace('a number from 1 to 6', 'a number from 1 to 7')
 ps1=ps1.replace('MOD Manager v1.6', 'MOD Manager v1.7')
 ps1=ps1.replace('known v1.0/v1.2/v1.3/v1.4/v1.5/v1.6 MOD file', 'known v1.0/v1.2/v1.3/v1.4/v1.5/v1.6/v1.7 MOD file')
 ps1=ps1.replace('upgraded directly to v1.6', 'upgraded directly to v1.7')
