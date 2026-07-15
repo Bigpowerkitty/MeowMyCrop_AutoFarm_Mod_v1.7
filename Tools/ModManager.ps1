@@ -10,6 +10,16 @@ $relativeTarget = "MeowMyCrop_Data\Managed\Assembly-CSharp.dll"
 $originalHash = "ad00d6dd37d0ee222e5506e9a4b697c5b5bf10fa3673843cde68b9760654e954"
 $legacyV10Hash = "6a9d6571fa9cf6f24194b565f18c5e4633941311929a929fdaf1fe70c8d6f9f2"
 $variantHashes = @{
+    "1" = "0ff08cd4ffc52b5b6ca60ac7d4ac588d9088f981789cd33ec1fdabb0233c96b4"
+    "2" = "65bb1d0b5239c0400697e6e1253245ca73ea90e0ff7f113d1ba00d99e5e7dc17"
+    "5" = "1aa5ef1b53740718b55f7f074f0409ea34d9ef19cddd9ec7c461250191cd99a3"
+    "10" = "1e6e870dc1290fc0c91f7e40d64685717cb628a8ba5afa41f3ba65cbd06a0948"
+    "20" = "02baf004ccae110f9d014c7eb288de62d6665a4dd5c02081e11192c9d874b4fd"
+    "50" = "14ec38d2c8fa6160d85ab7c157dc1a72b51c7573cd668167205105efc4bd6669"
+    "500" = "1d842c602f728fa1fa8e0a2ee5c2d2710a4c21583b826e01db7d512fd855b0ff"
+}
+
+$legacyV17AutoSupplyV1Hashes = @{
     "1" = "32ae37be641f5c0f025bc35ecddf008f0b2199de8ba52fdd2b9f84cc1c4214b6"
     "2" = "fc677753a35ada8be0811e48d622b18a5952de4f0aa67cac876d06aab20e6459"
     "5" = "bba527cb7bdac8df0b02b30af0cae0c064a2b69390d5cfd3b72eab874a025d00"
@@ -291,6 +301,9 @@ function Detect-Installed-Speed([string]$Hash) {
 }
 
 function Detect-Legacy-V17-Speed([string]$Hash) {
+    foreach ($key in $legacyV17AutoSupplyV1Hashes.Keys) {
+        if ($legacyV17AutoSupplyV1Hashes[$key] -eq $Hash) { return [int]$key }
+    }
     foreach ($key in $legacyV17EveryFrameHashes.Keys) {
         if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }
     }

@@ -65,7 +65,6 @@ T={
  'FlowerPot.HarvestFlower':0x06000050,
  'FlowerPot.PlantFlower':0x0600004F,
  'FlowerPot.RemovePlant':0x06000054,
- 'FlowerPot.TriggerPlantAnimationSequentially':0x0600006B,
  'FlowerPot.plantPrefab':0x04000075,
  'FlowerPot.currentPlantConfig':0x0400007A,
  'FlowerPot.get_CurrentPlantConfigId':0x0600004B,
@@ -116,6 +115,8 @@ T={
  'KEY_AUTOFARM':0x70006CA1,       # "FarmingCat"
  'KEY_AUTOCAN':0x700017F6,        # "Canned"
  'KEY_AUTOCAN_TARGET':0x70000474, # "growTrigger"; current missing fruit id
+ 'KEY_AUTOCAN_COUNT':0x700088DE,  # "requiredGrowthValue"; required inventory count
+ 'KEY_AUTOCAN_APPLIED':0x700088C6,# "stageSprite"; safely applied crop id
  'FMT_STATE':0x70006979,           # "{0}: {1}"
 }
 
@@ -147,6 +148,11 @@ def emit_enabled_check(il,key_token,enabled_label,disabled_label=None):
         il.branch(0x38,enabled_label)
 
 
+def emit_clear_auto_can_state(il):
+    for key in (T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED']):
+        il.token(0x72,key); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt'])
+
+
 def make_update_body():
     il=IL()
     # Four independent, persistent switches.
@@ -161,11 +167,45 @@ def make_update_body():
     il.token(0x28,T['KeyClickMessage.Obtain']); il.token(0x6F,T['MessageManager.Dispatch'])
     il.label('after_auto_key')
 
+    # Crop replacement is deliberately performed here, outside inventory-change
+    # callbacks. This avoids re-entering HarvestFlower while it is still adding
+    # fruit and dispatching UI messages.
+    il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'can_enabled')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'after_auto_supply')
+    emit_clear_auto_can_state(il); il.branch(0x38,'after_auto_supply')
+    il.label('can_enabled')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'after_auto_supply')
+    # A target that has reached its stored requirement is complete.
+    il.b(0x02); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
+    il.token(0x72,T['KEY_AUTOCAN_COUNT']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3F,'target_missing')
+    emit_clear_auto_can_state(il); il.branch(0x38,'after_auto_supply')
+
+    il.label('target_missing')
+    il.token(0x28,T['PlayerManager.Instance']); il.token(0x6F,T['PlayerManager.get_LocalPlayer']); il.b(0x25); il.branch(0x3A,'has_supply_player'); il.b(0x26); il.branch(0x38,'after_auto_supply')
+    il.label('has_supply_player')
+    il.token(0x7B,T['Player.flowerPot']); il.b(0x25); il.branch(0x3A,'has_supply_pot'); il.b(0x26); il.branch(0x38,'after_auto_supply')
+    il.label('has_supply_pot')
+    # Replace once per target, or again if the player manually changed crops.
+    il.b(0x25); il.token(0x28,T['FlowerPot.get_CurrentPlantConfigId'])
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x40,'replace_supply_crop')
+    il.token(0x72,T['KEY_AUTOCAN_APPLIED']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x40,'replace_supply_crop')
+    il.b(0x26); il.branch(0x38,'after_auto_supply')
+    il.label('replace_supply_crop')
+    il.b(0x25); il.token(0x28,T['FlowerPot.RemovePlant'])
+    il.b(0x25,0x7B); il.raw(struct.pack('<I',T['FlowerPot.plantPrefab']))
+    il.token(0x28,T['ConfigManager.Instance']); il.token(0x7B,T['ConfigManager.tables']); il.token(0x6F,T['Tables.get_TbPlantConfig'])
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.token(0x6F,T['TbPlantConfig.GetOrDefault'])
+    il.b(0x16); il.token(0x28,T['FlowerPot.PlantFlower'])
+    il.token(0x72,T['KEY_AUTOCAN_APPLIED']); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.token(0x28,T['PlayerPrefs.SetInt'])
+    il.label('after_auto_supply')
+
     # Preserve original S quick-save.
     il.i1(115); il.token(0x28,T['Input.GetKeyDown']); il.branch(0x39,'return')
     il.b(0x02); il.token(0x28,T['DataManager.SaveGameData'])
     il.label('return'); il.b(0x2A)
-    return fat_body(il.assemble(),max_stack=5)
+    return fat_body(il.assemble(),max_stack=6)
 
 
 def make_steal_body():
@@ -264,9 +304,9 @@ def make_grow_body(speed):
 
 
 def make_auto_can_update_button_body():
-    # Keep the original button/manual operation. If F8 finds a shortage, one
-    # global target lock prevents multiple can widgets from repeatedly replacing
-    # each other's crops. The selected crop is removed, replanted and animated.
+    # Keep the original button/manual operation. Inventory callbacks only select
+    # a missing-fruit target; DataManager.Update performs replacement safely on
+    # the next frame after any active HarvestFlower call has returned.
     il=IL()
     il.b(0x02); il.token(0x7B,T['BaseCannedItem.ExchangeButton']); il.b(0x14)
     il.token(0x28,T['Object.op_Equality']); il.branch(0x39,'has_button'); il.b(0x2A)
@@ -288,9 +328,7 @@ def make_auto_can_update_button_body():
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateTextColors'])
     il.b(0x07); il.branch(0x39,'supply')
     il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
-    # A completed recipe releases the lock before opening, allowing the next can
-    # to claim its missing fruit on the same pass.
-    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt'])
+    emit_clear_auto_can_state(il)
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.ExchangeCannedItem'])
     il.branch(0x38,'return')
 
@@ -298,8 +336,13 @@ def make_auto_can_update_button_body():
     il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
     il.b(0x06); il.token(0x6F,T['List.get_Count']); il.b(0x16); il.branch(0x3E,'return')
 
-    # Claim the first missing recipe fruit when no other can owns the target.
-    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'target_ready')
+    # Release a completed/stale target before claiming the next missing fruit.
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'find_missing')
+    il.token(0x28,T['DataManager.Instance']); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
+    il.token(0x72,T['KEY_AUTOCAN_COUNT']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3F,'return')
+    emit_clear_auto_can_state(il)
+    il.label('find_missing')
     il.token(0x28,T['DataManager.Instance']); il.b(0x06,0x16); il.token(0x6F,T['List.get_Item'])
     il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
     il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.branch(0x3F,'missing_first')
@@ -310,39 +353,14 @@ def make_auto_can_update_button_body():
     il.branch(0x38,'return')
     il.label('missing_first')
     il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x06,0x16); il.token(0x6F,T['List.get_Item']); il.token(0x28,T['PlayerPrefs.SetInt'])
-    il.branch(0x38,'target_ready')
+    il.branch(0x38,'store_requirement')
     il.label('missing_second')
     il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x06,0x17); il.token(0x6F,T['List.get_Item']); il.token(0x28,T['PlayerPrefs.SetInt'])
-
-    il.label('target_ready')
-    # Only the can whose recipe contains the locked fruit may replace the crop.
-    il.b(0x06); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
-    il.token(0x6F,T['List.Contains']); il.branch(0x39,'return')
-    # If another update already supplied it, release the lock.
-    il.token(0x28,T['DataManager.Instance']); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
-    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
-    il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.branch(0x3F,'need_crop')
-    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt']); il.branch(0x38,'return')
-
-    il.label('need_crop')
-    il.token(0x28,T['PlayerManager.Instance']); il.token(0x6F,T['PlayerManager.get_LocalPlayer']); il.b(0x25); il.branch(0x3A,'has_player'); il.b(0x26); il.branch(0x38,'return')
-    il.label('has_player')
-    il.token(0x7B,T['Player.flowerPot']); il.b(0x25); il.branch(0x3A,'has_pot'); il.b(0x26); il.branch(0x38,'return')
-    il.label('has_pot')
-    il.b(0x25); il.token(0x28,T['FlowerPot.get_CurrentPlantConfigId'])
-    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x40,'replace_crop')
-    il.b(0x26); il.branch(0x38,'return')
-    il.label('replace_crop')
-    il.b(0x25); il.token(0x28,T['FlowerPot.RemovePlant'])
-    il.b(0x25,0x7B); il.raw(struct.pack('<I',T['FlowerPot.plantPrefab']))
-    il.token(0x28,T['ConfigManager.Instance']); il.token(0x7B,T['ConfigManager.tables']); il.token(0x6F,T['Tables.get_TbPlantConfig'])
-    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.token(0x6F,T['TbPlantConfig.GetOrDefault'])
-    il.b(0x16); il.token(0x28,T['FlowerPot.PlantFlower'])
-    # Immediate visible feedback: refresh the pot's grow animation after switching.
-    il.token(0x28,T['PlayerManager.Instance']); il.token(0x6F,T['PlayerManager.get_LocalPlayer']); il.token(0x7B,T['Player.flowerPot'])
-    il.token(0x28,T['FlowerPot.TriggerPlantAnimationSequentially'])
+    il.label('store_requirement')
+    il.token(0x72,T['KEY_AUTOCAN_COUNT']); il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.token(0x28,T['PlayerPrefs.SetInt'])
+    il.token(0x72,T['KEY_AUTOCAN_APPLIED']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt'])
     il.label('return'); il.b(0x2A)
-    return fat_body(il.assemble(),max_stack=6,local_sig=0x11000131,init_locals=True)
+    return fat_body(il.assemble(),max_stack=4,local_sig=0x11000131,init_locals=True)
 
 
 def make_legendary_cloth_config_body():
@@ -425,6 +443,15 @@ every_frame_v17_hashes={
     '50':'4ea6d68c7a69dbe9218a5f2dc06c77cdc0c8e593ed541d38c92846922766826b',
     '500':'55c2904d9cf97281c428af5e0f36dd8fa3787e2d4f79283b5748ce13e273511c',
 }
+autosupply_v1_hashes={
+    '1':'32ae37be641f5c0f025bc35ecddf008f0b2199de8ba52fdd2b9f84cc1c4214b6',
+    '2':'fc677753a35ada8be0811e48d622b18a5952de4f0aa67cac876d06aab20e6459',
+    '5':'bba527cb7bdac8df0b02b30af0cae0c064a2b69390d5cfd3b72eab874a025d00',
+    '10':'cfc80ce7d8158dfdce217b6cb69423559f86735c2c0add0c5a0e730eecfd353d',
+    '20':'723d9fe46ab6700501281d32863fc36b0f12a920419f3597da4f16876ea9a8a0',
+    '50':'61c23795d9e53f9e51c2b68cdc3152c621938b91ca4f1d30be00394d55ba715f',
+    '500':'99d8afdc70dbc5b7e8692ffb296d069a6ba3572c5f8948ac76d1a22d7b1bff21',
+}
 fast2_v17_hashes={
     '1':'33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f',
     '2':'0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5',
@@ -441,7 +468,7 @@ fast4_v17_hashes={
     '20':'0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11',
     '50':'281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32',
 }
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_autosupply_v1':autosupply_v1_hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
@@ -454,10 +481,10 @@ def validate(path,speed):
         parsed[(typ,name)]=b
     def toks(k): return [i.operand.value for i in parsed[k].instructions if hasattr(i.operand,'value')]
     update=toks(('DataManager','Update'))
-    assert update.count(T['PlayerPrefs.SetInt'])==4
+    assert update.count(T['PlayerPrefs.SetInt'])>=10
     assert update.count(T['PlayerPrefs.GetInt'])>=9
-    for key in [T['KEY_STEAL'],T['KEY_AUTOKEY'],T['KEY_AUTOFARM'],T['KEY_AUTOCAN']]: assert key in update
-    assert T['KeyClickMessage.Obtain'] in update
+    for key in [T['KEY_STEAL'],T['KEY_AUTOKEY'],T['KEY_AUTOFARM'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED']]: assert key in update
+    for tok in [T['KeyClickMessage.Obtain'],T['FlowerPot.RemovePlant'],T['FlowerPot.PlantFlower']]: assert tok in update
     steal=toks(('Player','ClickStealBtn'))
     for tok in [T['PlayerPrefs.GetInt'],T['KEY_STEAL'],T['StealResultMessage.Obtain'],T['Player.ShowStealResult'],T['DataManager.RemoveFruit'],T['FruitLostMessage.Obtain'],T['Debug.Log']]: assert tok in steal, (path,tok)
     auto=toks(('FlowerPot','CheckAutoHarvest'))
@@ -468,7 +495,8 @@ def validate(path,speed):
     assert T['KEY_STEAL_DONE'] in grow and T['PlayerPrefs.SetInt'] in grow
     assert any(str(i.opcode)=='ldc.r4' and abs(float(i.operand)-float(speed))<1e-6 for i in parsed[('Plant','Grow')].instructions)
     can=toks(('BaseCannedItem','UpdateButtonState'))
-    for tok in [T['PlayerPrefs.GetInt'],T['KEY_AUTOCAN'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['Selectable.set_interactable']]: assert tok in can
+    for tok in [T['PlayerPrefs.GetInt'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['Selectable.set_interactable']]: assert tok in can
+    assert T['FlowerPot.RemovePlant'] not in can and T['FlowerPot.PlantFlower'] not in can
     rarity=parsed[('tClothConfig','DeserializetClothConfig')]
     rt=toks(('tClothConfig','DeserializetClothConfig'))
     assert T['tClothConfig.ctor'] in rt and T['tClothConfig.Rarity'] in rt
@@ -485,12 +513,13 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17AutoSupplyV1Hashes',autosupply_v1_hashes)+'\n\n'+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
 block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
+block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoSupplyV1Hashes.Keys) {\n        if ($legacyV17AutoSupplyV1Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17EveryFrameHashes.Keys) {\n        if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast2Hashes.Keys) {\n        if ($legacyV17Fast2Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast4Hashes.Keys) {\n        if ($legacyV17Fast4Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
