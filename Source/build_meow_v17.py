@@ -143,9 +143,9 @@ def make_update_body():
     emit_toggle(il,288,T['KEY_AUTOFARM'],T['KEY_AUTOFARM'],'after_f7') # F7
     emit_toggle(il,289,T['KEY_AUTOCAN'],T['KEY_AUTOCAN'],'after_f8') # F8
 
-    # Internal A-key message every 6 frames, independently gated by F6 setting.
+    # Internal A-key message every 2 frames, independently gated by F6 setting.
     il.token(0x72,T['KEY_AUTOKEY']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'after_auto_key')
-    il.token(0x28,T['Time.frameCount']); il.b(0x1C,0x5D); il.branch(0x3A,'after_auto_key')
+    il.token(0x28,T['Time.frameCount']); il.b(0x18,0x5D); il.branch(0x3A,'after_auto_key')
     il.token(0x28,T['MessageManager.Instance']); il.i1(65)
     il.token(0x28,T['KeyClickMessage.Obtain']); il.token(0x6F,T['MessageManager.Dispatch'])
     il.label('after_auto_key')
