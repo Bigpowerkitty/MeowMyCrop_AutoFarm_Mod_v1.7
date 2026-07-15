@@ -94,6 +94,8 @@ T={
  'BaseCannedItem.GetRequiredFruitIds':0x060005A6,
  'BaseCannedItem.CheckInventorySufficient':0x060005AC,
  'BaseCannedItem.UpdateTextColors':0x060005B1,
+ 'SteamInventoryManager.Instance':0x0A0002A3,
+ 'SteamInventoryManager.HasItem':0x0600047F,
  'DataManager.GetFruitInventoryCount':0x0600012F,
  'List.get_Item':0x0A0000D5,
  'List.Contains':0x0A00016C,
@@ -104,6 +106,7 @@ T={
  'Tables.get_TbPlantConfig':0x060008FC,
  'TbPlantConfig.GetOrDefault':0x06000954,
  'tPoolConfig.Count':0x040006C0,
+ 'tPoolConfig.TokenId':0x040006BD,
  'List.get_Count':0x0A0000D4,
  'Selectable.set_interactable':0x0A000456,
  'tClothConfig.ctor':0x06000964,
@@ -117,6 +120,7 @@ T={
  'KEY_AUTOCAN_TARGET':0x70000474, # "growTrigger"; current missing fruit id
  'KEY_AUTOCAN_COUNT':0x700088DE,  # "requiredGrowthValue"; required inventory count
  'KEY_AUTOCAN_APPLIED':0x700088C6,# "stageSprite"; safely applied crop id
+ 'KEY_AUTOCAN_LAST_FRAME':0x70000356, # "inventory_exchange"; global retry/reentry guard
  'FMT_STATE':0x70006979,           # "{0}: {1}"
 }
 
@@ -306,7 +310,10 @@ def make_grow_body(speed):
 def make_auto_can_update_button_body():
     # Keep the original button/manual operation. Inventory callbacks only select
     # a missing-fruit target; DataManager.Update performs replacement safely on
-    # the next frame after any active HarvestFlower call has returned.
+    # the next frame after any active HarvestFlower call has returned. Automatic
+    # exchange is globally guarded before the async call: the game's failed-
+    # exchange completion synchronously calls this method again after clearing
+    # _isExchanging, so an unguarded call here recursively exhausts the stack.
     il=IL()
     il.b(0x02); il.token(0x7B,T['BaseCannedItem.ExchangeButton']); il.b(0x14)
     il.token(0x28,T['Object.op_Equality']); il.branch(0x39,'has_button'); il.b(0x2A)
@@ -328,6 +335,27 @@ def make_auto_can_update_button_body():
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateTextColors'])
     il.b(0x07); il.branch(0x39,'supply')
     il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+
+    # Fruit sufficiency alone is not enough: Steam exchange also consumes the
+    # pool's TokenId item. Avoid dispatching a request that must fail when the
+    # local Steam inventory has no such instance (the observed crash used 100002).
+    il.token(0x28,T['SteamInventoryManager.Instance'])
+    il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.TokenId'])
+    il.b(0x17); il.token(0x6F,T['SteamInventoryManager.HasItem']); il.branch(0x39,'return')
+
+    # One automatic exchange attempt per 300 frames, across every can widget.
+    # A stored frame from a previous process is larger than the new session's
+    # frame count; treat that as eligible so the first attempt is not delayed.
+    il.token(0x28,T['Time.frameCount'])
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-300); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.branch(0x3F,'exchange')
+    il.token(0x28,T['Time.frameCount'])
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-300); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.b(0x59); il.i4(300); il.branch(0x3F,'return')
+    il.label('exchange')
+    # Store the guard before invoking the async method. Its failure completion
+    # may re-enter UpdateButtonState synchronously in this same frame.
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.token(0x28,T['Time.frameCount']); il.token(0x28,T['PlayerPrefs.SetInt'])
     emit_clear_auto_can_state(il)
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.ExchangeCannedItem'])
     il.branch(0x38,'return')
@@ -452,6 +480,15 @@ autosupply_v1_hashes={
     '50':'61c23795d9e53f9e51c2b68cdc3152c621938b91ca4f1d30be00394d55ba715f',
     '500':'99d8afdc70dbc5b7e8692ffb296d069a6ba3572c5f8948ac76d1a22d7b1bff21',
 }
+autosupply_reentry_hashes={
+    '1':'0ff08cd4ffc52b5b6ca60ac7d4ac588d9088f981789cd33ec1fdabb0233c96b4',
+    '2':'65bb1d0b5239c0400697e6e1253245ca73ea90e0ff7f113d1ba00d99e5e7dc17',
+    '5':'1aa5ef1b53740718b55f7f074f0409ea34d9ef19cddd9ec7c461250191cd99a3',
+    '10':'1e6e870dc1290fc0c91f7e40d64685717cb628a8ba5afa41f3ba65cbd06a0948',
+    '20':'02baf004ccae110f9d014c7eb288de62d6665a4dd5c02081e11192c9d874b4fd',
+    '50':'14ec38d2c8fa6160d85ab7c157dc1a72b51c7573cd668167205105efc4bd6669',
+    '500':'1d842c602f728fa1fa8e0a2ee5c2d2710a4c21583b826e01db7d512fd855b0ff',
+}
 fast2_v17_hashes={
     '1':'33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f',
     '2':'0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5',
@@ -468,7 +505,7 @@ fast4_v17_hashes={
     '20':'0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11',
     '50':'281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32',
 }
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_autosupply_v1':autosupply_v1_hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_autosupply_reentry':autosupply_reentry_hashes,'legacy_v17_autosupply_v1':autosupply_v1_hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
@@ -495,7 +532,7 @@ def validate(path,speed):
     assert T['KEY_STEAL_DONE'] in grow and T['PlayerPrefs.SetInt'] in grow
     assert any(str(i.opcode)=='ldc.r4' and abs(float(i.operand)-float(speed))<1e-6 for i in parsed[('Plant','Grow')].instructions)
     can=toks(('BaseCannedItem','UpdateButtonState'))
-    for tok in [T['PlayerPrefs.GetInt'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['Selectable.set_interactable']]: assert tok in can
+    for tok in [T['PlayerPrefs.GetInt'],T['PlayerPrefs.SetInt'],T['Time.frameCount'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED'],T['KEY_AUTOCAN_LAST_FRAME'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['SteamInventoryManager.Instance'],T['SteamInventoryManager.HasItem'],T['tPoolConfig.TokenId'],T['Selectable.set_interactable']]: assert tok in can
     assert T['FlowerPot.RemovePlant'] not in can and T['FlowerPot.PlantFlower'] not in can
     rarity=parsed[('tClothConfig','DeserializetClothConfig')]
     rt=toks(('tClothConfig','DeserializetClothConfig'))
@@ -513,13 +550,14 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV17AutoSupplyV1Hashes',autosupply_v1_hashes)+'\n\n'+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17AutoSupplyReentryHashes',autosupply_reentry_hashes)+'\n\n'+map_block('legacyV17AutoSupplyV1Hashes',autosupply_v1_hashes)+'\n\n'+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
 block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoSupplyV1Hashes.Keys) {\n        if ($legacyV17AutoSupplyV1Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
+block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoSupplyReentryHashes.Keys) {\n        if ($legacyV17AutoSupplyReentryHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17EveryFrameHashes.Keys) {\n        if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast2Hashes.Keys) {\n        if ($legacyV17Fast2Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast4Hashes.Keys) {\n        if ($legacyV17Fast4Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
@@ -630,6 +668,11 @@ notes=f'''v1.7 implementation notes
 - F5 steal/lost remains independent when F7 auto-farm is paused: a per-crop marker prevents repeated events on the same mature crop.
 - F7 gates harvesting and replanting only.
 - Auto-can off preserves button interactability and manual opening.
+- Automatic can exchange writes a global frame guard before invoking the async
+  Steam exchange, preventing its synchronous failure callback from re-entering
+  the exchange path. Automatic retries are limited to once per 300 frames.
+- Automatic exchange verifies the configured Steam TokenId item exists before
+  sending the request; fruit sufficiency alone cannot trigger a guaranteed failure.
 - Existing v1.6 Legendary/orange local rarity override is preserved.
 
 SHA256 variants:

@@ -9,6 +9,8 @@ v1.7 implementation notes
 - No private FlowerPot animation method is called. PlantFlower/Plant.Start and Grow/SetStage provide the real crop, stage, progress and animation visuals.
 - F8-off, completed and stale targets clear target/count/applied state so a changed can page cannot remain permanently locked.
 - Auto-can off preserves button interactability and manual opening.
+- Automatic Steam exchange is guarded before the async call and limited to one attempt per 300 frames. An immediately failed exchange can no longer synchronously re-enter UpdateButtonState and exhaust the stack.
+- Automatic exchange also verifies that the configured Steam TokenId item exists before sending the request; fruit sufficiency alone no longer triggers a guaranteed failure.
 - Existing v1.6 Legendary/orange local rarity override is preserved.
 - F6 internal A-key delivery sends exactly once per game frame with no interval-frame gate.
 - Adds a 500x extreme growth variant while retaining the original 1x through 50x choices.
@@ -16,11 +18,11 @@ v1.7 implementation notes
 
 SHA256 variants:
 {
-  "1": "0ff08cd4ffc52b5b6ca60ac7d4ac588d9088f981789cd33ec1fdabb0233c96b4",
-  "2": "65bb1d0b5239c0400697e6e1253245ca73ea90e0ff7f113d1ba00d99e5e7dc17",
-  "5": "1aa5ef1b53740718b55f7f074f0409ea34d9ef19cddd9ec7c461250191cd99a3",
-  "10": "1e6e870dc1290fc0c91f7e40d64685717cb628a8ba5afa41f3ba65cbd06a0948",
-  "20": "02baf004ccae110f9d014c7eb288de62d6665a4dd5c02081e11192c9d874b4fd",
-  "50": "14ec38d2c8fa6160d85ab7c157dc1a72b51c7573cd668167205105efc4bd6669",
-  "500": "1d842c602f728fa1fa8e0a2ee5c2d2710a4c21583b826e01db7d512fd855b0ff"
+  "1": "fd6acf0ea9d49185c835a0294199b99079c4c1a2c26ea1c74eee9c1e7616fba8",
+  "2": "a8a2785d186e21edbe7efdf072f838bcc2e086f1255305a229609d30778b1bd1",
+  "5": "527a38fbbbf0aa39a7c15a1285ebda6390f057d191be322fe5018132fa5b3efe",
+  "10": "99c8e58ec7f0cacbf083b0a56e2a665443455d086aa1760e0df2d1024803ccd3",
+  "20": "6a1cd0cf479f5c22810d8564a011ffa8bb534a9075db492a1e46fb32a6048f35",
+  "50": "ac836311c52e12bef8f8b25461a8a46cb57d4f68d5a99761066a41f54ab037c4",
+  "500": "4fd4bcb0d316faed686a4bcee791985d4193be451fcbf8d04722f2921c274625"
 }

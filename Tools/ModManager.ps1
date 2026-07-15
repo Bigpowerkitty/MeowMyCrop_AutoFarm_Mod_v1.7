@@ -10,6 +10,16 @@ $relativeTarget = "MeowMyCrop_Data\Managed\Assembly-CSharp.dll"
 $originalHash = "ad00d6dd37d0ee222e5506e9a4b697c5b5bf10fa3673843cde68b9760654e954"
 $legacyV10Hash = "6a9d6571fa9cf6f24194b565f18c5e4633941311929a929fdaf1fe70c8d6f9f2"
 $variantHashes = @{
+    "1" = "fd6acf0ea9d49185c835a0294199b99079c4c1a2c26ea1c74eee9c1e7616fba8"
+    "2" = "a8a2785d186e21edbe7efdf072f838bcc2e086f1255305a229609d30778b1bd1"
+    "5" = "527a38fbbbf0aa39a7c15a1285ebda6390f057d191be322fe5018132fa5b3efe"
+    "10" = "99c8e58ec7f0cacbf083b0a56e2a665443455d086aa1760e0df2d1024803ccd3"
+    "20" = "6a1cd0cf479f5c22810d8564a011ffa8bb534a9075db492a1e46fb32a6048f35"
+    "50" = "ac836311c52e12bef8f8b25461a8a46cb57d4f68d5a99761066a41f54ab037c4"
+    "500" = "4fd4bcb0d316faed686a4bcee791985d4193be451fcbf8d04722f2921c274625"
+}
+
+$legacyV17AutoSupplyReentryHashes = @{
     "1" = "0ff08cd4ffc52b5b6ca60ac7d4ac588d9088f981789cd33ec1fdabb0233c96b4"
     "2" = "65bb1d0b5239c0400697e6e1253245ca73ea90e0ff7f113d1ba00d99e5e7dc17"
     "5" = "1aa5ef1b53740718b55f7f074f0409ea34d9ef19cddd9ec7c461250191cd99a3"
@@ -301,6 +311,9 @@ function Detect-Installed-Speed([string]$Hash) {
 }
 
 function Detect-Legacy-V17-Speed([string]$Hash) {
+    foreach ($key in $legacyV17AutoSupplyReentryHashes.Keys) {
+        if ($legacyV17AutoSupplyReentryHashes[$key] -eq $Hash) { return [int]$key }
+    }
     foreach ($key in $legacyV17AutoSupplyV1Hashes.Keys) {
         if ($legacyV17AutoSupplyV1Hashes[$key] -eq $Hash) { return [int]$key }
     }
@@ -403,7 +416,7 @@ try {
         if ((Get-Hash $backup) -ne $originalHash) { throw 'v1.0 backup hash is unexpected. It was not overwritten for safety.' }
     }
     if ($legacyV17Speed -gt 0) {
-        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating automatic can supply and synchronized crop visuals." -ForegroundColor Yellow
+        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating automatic can supply with exchange reentry protection." -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath $backup)) { throw 'An earlier v1.7 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
         if ((Get-Hash $backup) -ne $originalHash) { throw 'Earlier v1.7 backup hash is unexpected. It was not overwritten for safety.' }
     }
