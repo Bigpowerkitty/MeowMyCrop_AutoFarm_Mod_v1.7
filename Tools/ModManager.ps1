@@ -10,6 +10,16 @@ $relativeTarget = "MeowMyCrop_Data\Managed\Assembly-CSharp.dll"
 $originalHash = "ad00d6dd37d0ee222e5506e9a4b697c5b5bf10fa3673843cde68b9760654e954"
 $legacyV10Hash = "6a9d6571fa9cf6f24194b565f18c5e4633941311929a929fdaf1fe70c8d6f9f2"
 $variantHashes = @{
+    "1" = "32ae37be641f5c0f025bc35ecddf008f0b2199de8ba52fdd2b9f84cc1c4214b6"
+    "2" = "fc677753a35ada8be0811e48d622b18a5952de4f0aa67cac876d06aab20e6459"
+    "5" = "bba527cb7bdac8df0b02b30af0cae0c064a2b69390d5cfd3b72eab874a025d00"
+    "10" = "cfc80ce7d8158dfdce217b6cb69423559f86735c2c0add0c5a0e730eecfd353d"
+    "20" = "723d9fe46ab6700501281d32863fc36b0f12a920419f3597da4f16876ea9a8a0"
+    "50" = "61c23795d9e53f9e51c2b68cdc3152c621938b91ca4f1d30be00394d55ba715f"
+    "500" = "99d8afdc70dbc5b7e8692ffb296d069a6ba3572c5f8948ac76d1a22d7b1bff21"
+}
+
+$legacyV17EveryFrameHashes = @{
     "1" = "3338b9e8457156d869cfbfb82998b08e37d9f192c10b3b166770f9372e91af4c"
     "2" = "3cf4a1355d6b1db4ad2112cb79328692dbd9b370fc51454d1f77365badd7c91c"
     "5" = "52dbf0e1ebf010cb9ff1ec7a04e4cf6eea7f55d229b1b8df16150379d75d82a7"
@@ -281,6 +291,9 @@ function Detect-Installed-Speed([string]$Hash) {
 }
 
 function Detect-Legacy-V17-Speed([string]$Hash) {
+    foreach ($key in $legacyV17EveryFrameHashes.Keys) {
+        if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }
+    }
     foreach ($key in $legacyV17Hashes.Keys) {
         if ($legacyV17Hashes[$key] -eq $Hash) { return [int]$key }
     }
@@ -377,7 +390,7 @@ try {
         if ((Get-Hash $backup) -ne $originalHash) { throw 'v1.0 backup hash is unexpected. It was not overwritten for safety.' }
     }
     if ($legacyV17Speed -gt 0) {
-        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating to accelerated automatic key delivery." -ForegroundColor Yellow
+        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating automatic can supply and synchronized crop visuals." -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath $backup)) { throw 'An earlier v1.7 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
         if ((Get-Hash $backup) -ne $originalHash) { throw 'Earlier v1.7 backup hash is unexpected. It was not overwritten for safety.' }
     }
@@ -430,7 +443,7 @@ try {
         'F5=Toggle automatic steal + automatic being-stolen (persistent)',
         'F6=Toggle internal automatic key delivery (persistent; physical input remains active)',
         'F7=Toggle automatic harvest + replant (persistent)',
-        'F8=Toggle automatic can opening (persistent; manual can button remains usable)',
+        'F8=Toggle automatic can opening + missing-fruit crop supply (persistent)',
         'All four switches default to enabled on first run',
         'DecorationRarityOverride=Local Legendary/orange display and classification',
         'No mouse movement or mouse capture is used',
@@ -438,7 +451,7 @@ try {
     ) | Set-Content -LiteralPath (Join-Path $root 'MeowMyCrop_Mod_Settings.txt') -Encoding UTF8
 
     $verb = if ($Mode -eq 'Speed') { 'Growth speed changed' } else { 'MOD v1.7 installed' }
-    Show-Result "$verb successfully.`nGrowth speed: ${speed}x`n`nIndependent persistent switches (default ON):`nF5 = steal + being-stolen`nF6 = internal automatic key delivery`nF7 = automatic harvest + replant`nF8 = automatic can opening`n`nPress the same key again to resume a paused feature. Manual keyboard/mouse input and the manual can button remain usable." 'Meow My Crop MOD' 'Success'
+    Show-Result "$verb successfully.`nGrowth speed: ${speed}x`n`nIndependent persistent switches (default ON):`nF5 = steal + being-stolen`nF6 = internal automatic key delivery`nF7 = automatic harvest + replant`nF8 = automatic can opening + missing-fruit crop supply`n`nWhen a can lacks fruit, the current wrong crop is removed and the required crop is planted with synchronized visuals. Manual keyboard/mouse input and the manual can button remain usable." 'Meow My Crop MOD' 'Success'
     exit 0
 }
 catch {

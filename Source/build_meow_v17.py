@@ -64,6 +64,8 @@ T={
  'FlowerPot.GetTotalFruitCount':0x06000057,
  'FlowerPot.HarvestFlower':0x06000050,
  'FlowerPot.PlantFlower':0x0600004F,
+ 'FlowerPot.RemovePlant':0x06000054,
+ 'FlowerPot.TriggerPlantAnimationSequentially':0x0600006B,
  'FlowerPot.plantPrefab':0x04000075,
  'FlowerPot.currentPlantConfig':0x0400007A,
  'FlowerPot.get_CurrentPlantConfigId':0x0600004B,
@@ -93,6 +95,15 @@ T={
  'BaseCannedItem.GetRequiredFruitIds':0x060005A6,
  'BaseCannedItem.CheckInventorySufficient':0x060005AC,
  'BaseCannedItem.UpdateTextColors':0x060005B1,
+ 'DataManager.GetFruitInventoryCount':0x0600012F,
+ 'List.get_Item':0x0A0000D5,
+ 'List.Contains':0x0A00016C,
+ 'PlayerManager.Instance':0x0A000284,
+ 'PlayerManager.get_LocalPlayer':0x06000168,
+ 'ConfigManager.Instance':0x0A00004B,
+ 'ConfigManager.tables':0x040001B6,
+ 'Tables.get_TbPlantConfig':0x060008FC,
+ 'TbPlantConfig.GetOrDefault':0x06000954,
  'tPoolConfig.Count':0x040006C0,
  'List.get_Count':0x0A0000D4,
  'Selectable.set_interactable':0x0A000456,
@@ -104,6 +115,7 @@ T={
  'KEY_AUTOKEY':0x700050F8,        # "total_key_clicks"
  'KEY_AUTOFARM':0x70006CA1,       # "FarmingCat"
  'KEY_AUTOCAN':0x700017F6,        # "Canned"
+ 'KEY_AUTOCAN_TARGET':0x70000474, # "growTrigger"; current missing fruit id
  'FMT_STATE':0x70006979,           # "{0}: {1}"
 }
 
@@ -204,7 +216,11 @@ def make_check_auto_harvest_body():
     il.b(0x02); il.token(0x7B,T['FlowerPot.player']); il.token(0x6F,T['Player.ClickStealBtn'])
     il.token(0x72,T['KEY_STEAL_DONE']); il.b(0x17); il.token(0x28,T['PlayerPrefs.SetInt'])
     il.label('skip_steal')
-    il.token(0x72,T['KEY_AUTOFARM']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    # Normal F7 auto-farm, or an active F8 can-supply target, may harvest.
+    il.token(0x72,T['KEY_AUTOFARM']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'harvest')
+    il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    il.label('harvest')
     il.b(0x02); il.token(0x28,T['FlowerPot.HarvestFlower'])
     il.label('return'); il.b(0x2A)
     return fat_body(il.assemble(),max_stack=3)
@@ -212,7 +228,10 @@ def make_check_auto_harvest_body():
 
 def make_auto_replant_body():
     il=IL()
-    il.token(0x72,T['KEY_AUTOFARM']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'farm_enabled'); il.b(0x2A)
+    il.token(0x72,T['KEY_AUTOFARM']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'farm_enabled')
+    il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'farm_enabled')
+    il.label('return'); il.b(0x2A)
     il.label('farm_enabled')
     il.b(0x02); il.token(0x7B,T['FlowerPot.currentPlantConfig']); il.branch(0x3A,'has_config'); il.b(0x2A)
     il.label('has_config')
@@ -245,8 +264,9 @@ def make_grow_body(speed):
 
 
 def make_auto_can_update_button_body():
-    # Always keep the original button state/manual operation. F8 only gates the
-    # automatic call to ExchangeCannedItem.
+    # Keep the original button/manual operation. If F8 finds a shortage, one
+    # global target lock prevents multiple can widgets from repeatedly replacing
+    # each other's crops. The selected crop is removed, replanted and animated.
     il=IL()
     il.b(0x02); il.token(0x7B,T['BaseCannedItem.ExchangeButton']); il.b(0x14)
     il.token(0x28,T['Object.op_Equality']); il.branch(0x39,'has_button'); il.b(0x2A)
@@ -266,11 +286,63 @@ def make_auto_can_update_button_body():
     il.b(0x02); il.token(0x7B,T['BaseCannedItem.ExchangeButton']); il.b(0x07)
     il.token(0x6F,T['Selectable.set_interactable'])
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateTextColors'])
-    il.b(0x07); il.branch(0x39,'return')
+    il.b(0x07); il.branch(0x39,'supply')
     il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    # A completed recipe releases the lock before opening, allowing the next can
+    # to claim its missing fruit on the same pass.
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt'])
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.ExchangeCannedItem'])
+    il.branch(0x38,'return')
+
+    il.label('supply')
+    il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
+    il.b(0x06); il.token(0x6F,T['List.get_Count']); il.b(0x16); il.branch(0x3E,'return')
+
+    # Claim the first missing recipe fruit when no other can owns the target.
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x3A,'target_ready')
+    il.token(0x28,T['DataManager.Instance']); il.b(0x06,0x16); il.token(0x6F,T['List.get_Item'])
+    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
+    il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.branch(0x3F,'missing_first')
+    il.b(0x06); il.token(0x6F,T['List.get_Count']); il.b(0x17); il.branch(0x3E,'return')
+    il.token(0x28,T['DataManager.Instance']); il.b(0x06,0x17); il.token(0x6F,T['List.get_Item'])
+    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
+    il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.branch(0x3F,'missing_second')
+    il.branch(0x38,'return')
+    il.label('missing_first')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x06,0x16); il.token(0x6F,T['List.get_Item']); il.token(0x28,T['PlayerPrefs.SetInt'])
+    il.branch(0x38,'target_ready')
+    il.label('missing_second')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x06,0x17); il.token(0x6F,T['List.get_Item']); il.token(0x28,T['PlayerPrefs.SetInt'])
+
+    il.label('target_ready')
+    # Only the can whose recipe contains the locked fruit may replace the crop.
+    il.b(0x06); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.token(0x6F,T['List.Contains']); il.branch(0x39,'return')
+    # If another update already supplied it, release the lock.
+    il.token(0x28,T['DataManager.Instance']); il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.token(0x6F,T['DataManager.GetFruitInventoryCount'])
+    il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.Count']); il.branch(0x3F,'need_crop')
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt']); il.branch(0x38,'return')
+
+    il.label('need_crop')
+    il.token(0x28,T['PlayerManager.Instance']); il.token(0x6F,T['PlayerManager.get_LocalPlayer']); il.b(0x25); il.branch(0x3A,'has_player'); il.b(0x26); il.branch(0x38,'return')
+    il.label('has_player')
+    il.token(0x7B,T['Player.flowerPot']); il.b(0x25); il.branch(0x3A,'has_pot'); il.b(0x26); il.branch(0x38,'return')
+    il.label('has_pot')
+    il.b(0x25); il.token(0x28,T['FlowerPot.get_CurrentPlantConfigId'])
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x40,'replace_crop')
+    il.b(0x26); il.branch(0x38,'return')
+    il.label('replace_crop')
+    il.b(0x25); il.token(0x28,T['FlowerPot.RemovePlant'])
+    il.b(0x25,0x7B); il.raw(struct.pack('<I',T['FlowerPot.plantPrefab']))
+    il.token(0x28,T['ConfigManager.Instance']); il.token(0x7B,T['ConfigManager.tables']); il.token(0x6F,T['Tables.get_TbPlantConfig'])
+    il.token(0x72,T['KEY_AUTOCAN_TARGET']); il.b(0x16); il.token(0x28,T['PlayerPrefs.GetInt']); il.token(0x6F,T['TbPlantConfig.GetOrDefault'])
+    il.b(0x16); il.token(0x28,T['FlowerPot.PlantFlower'])
+    # Immediate visible feedback: refresh the pot's grow animation after switching.
+    il.token(0x28,T['PlayerManager.Instance']); il.token(0x6F,T['PlayerManager.get_LocalPlayer']); il.token(0x7B,T['Player.flowerPot'])
+    il.token(0x28,T['FlowerPot.TriggerPlantAnimationSequentially'])
     il.label('return'); il.b(0x2A)
-    return fat_body(il.assemble(),max_stack=4,local_sig=0x11000131,init_locals=True)
+    return fat_body(il.assemble(),max_stack=6,local_sig=0x11000131,init_locals=True)
 
 
 def make_legendary_cloth_config_body():
@@ -344,6 +416,15 @@ pre_accel_v17_hashes={
     '20':'9e0270b96bd1f22ec5acf8d02c8ac70e1af086a5373ed970c5985f678d2b97c4',
     '50':'cbce1e4ea53e8b7b41ead71b87a08a7c299fe7e2f6f0e019037ff4f8dcc303b0',
 }
+every_frame_v17_hashes={
+    '1':'3338b9e8457156d869cfbfb82998b08e37d9f192c10b3b166770f9372e91af4c',
+    '2':'3cf4a1355d6b1db4ad2112cb79328692dbd9b370fc51454d1f77365badd7c91c',
+    '5':'52dbf0e1ebf010cb9ff1ec7a04e4cf6eea7f55d229b1b8df16150379d75d82a7',
+    '10':'746e1fb4c0ce92bbd1e61e8347415c0cd4965b1a69cc3c4e0ee41e3d8fb6baf6',
+    '20':'a1822fea9c384655de53a957b8d8aff702be64bc8f382f9cb2f34ec00cc1f962',
+    '50':'4ea6d68c7a69dbe9218a5f2dc06c77cdc0c8e593ed541d38c92846922766826b',
+    '500':'55c2904d9cf97281c428af5e0f36dd8fa3787e2d4f79283b5748ce13e273511c',
+}
 fast2_v17_hashes={
     '1':'33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f',
     '2':'0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5',
@@ -360,7 +441,7 @@ fast4_v17_hashes={
     '20':'0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11',
     '50':'281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32',
 }
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
@@ -404,12 +485,13 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
 block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
+block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17EveryFrameHashes.Keys) {\n        if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast2Hashes.Keys) {\n        if ($legacyV17Fast2Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17Fast4Hashes.Keys) {\n        if ($legacyV17Fast4Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 ps1=ps1[:pos]+block17+'\n'+block16+'\n'+ps1[pos:]
