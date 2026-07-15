@@ -9,8 +9,10 @@ v1.7 implementation notes
 - No private FlowerPot animation method is called. PlantFlower/Plant.Start and Grow/SetStage provide the real crop, stage, progress and animation visuals.
 - F8-off, completed and stale targets clear target/count/applied state so a changed can page cannot remain permanently locked.
 - Auto-can off preserves button interactability and manual opening.
-- Automatic Steam exchange is guarded before the async call and limited to one attempt per 300 frames. An immediately failed exchange can no longer synchronously re-enter UpdateButtonState and exhaust the stack.
-- Automatic exchange also verifies that the configured Steam TokenId item exists before sending the request; fruit sufficiency alone no longer triggers a guaranteed failure.
+- Automatic Steam exchange is guarded before the async call and limited to one attempt per two real game seconds, so uncapped frame rates cannot collapse the retry delay.
+- The original async lifecycle is retained, but its UI-only interactable gate no longer discards a validated automatic request. Busy completion restamps the guard before the final button refresh, preventing synchronous failure recursion.
+- Automatic exchange verifies that the configured Steam TokenId item exists. A missing/stale cache invokes the game's throttled refresh routine, and BaseCannedItem now retries on SteamInventoryRefreshedMessage.
+- Automatic fruit supply never fabricates Steam tokens; a genuinely missing token remains a safe no-op.
 - Existing v1.6 Legendary/orange local rarity override is preserved.
 - F6 internal A-key delivery sends exactly once per game frame with no interval-frame gate.
 - Adds a 500x extreme growth variant while retaining the original 1x through 50x choices.
@@ -18,11 +20,11 @@ v1.7 implementation notes
 
 SHA256 variants:
 {
-  "1": "fd6acf0ea9d49185c835a0294199b99079c4c1a2c26ea1c74eee9c1e7616fba8",
-  "2": "a8a2785d186e21edbe7efdf072f838bcc2e086f1255305a229609d30778b1bd1",
-  "5": "527a38fbbbf0aa39a7c15a1285ebda6390f057d191be322fe5018132fa5b3efe",
-  "10": "99c8e58ec7f0cacbf083b0a56e2a665443455d086aa1760e0df2d1024803ccd3",
-  "20": "6a1cd0cf479f5c22810d8564a011ffa8bb534a9075db492a1e46fb32a6048f35",
-  "50": "ac836311c52e12bef8f8b25461a8a46cb57d4f68d5a99761066a41f54ab037c4",
-  "500": "4fd4bcb0d316faed686a4bcee791985d4193be451fcbf8d04722f2921c274625"
+  "1": "d48644adb5a4d1c8d7d1181c7ceda3666e93375cadf647170ef5e7ffd7273a93",
+  "2": "998de791e226b9b1b5112a87b0ae79de83140ea3f6b42df212887959f18cee6e",
+  "5": "204d6ab316ff23c43bce5b10f63fde17b52eabddff0fd476fa8856f52799d97f",
+  "10": "6f6f536d24e21ed3e8c8c9ef06a970ddb2c7264c971d3942abaf04c1f388f85f",
+  "20": "d62fb064e7fdab0843f626b9ebdccbd66c47ed803a857ef6af66f2bf43509e25",
+  "50": "781910d8659a1ffeecf786bc62aa70dbdd36229dc84dee0ebea799ccefd812f6",
+  "500": "568c54de3303c7d682390c2eab20f6cd3edcbc94cf30364fc1fa280dcf48021c"
 }

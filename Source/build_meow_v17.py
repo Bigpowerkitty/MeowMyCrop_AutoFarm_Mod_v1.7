@@ -47,6 +47,7 @@ def fat_body(code,max_stack=8,local_sig=0,init_locals=False):
 T={
  'Input.GetKeyDown':0x0A0000EB,
  'Time.frameCount':0x0A000282,
+ 'Time.time':0x0A00003D,
  'PlayerPrefs.GetInt':0x0A00044D,
  'PlayerPrefs.SetInt':0x0A00044E,
  'PlayerPrefs.Save':0x0A000614,
@@ -91,11 +92,20 @@ T={
  'BaseCannedItem._isExchanging':0x0400043A,
  'BaseCannedItem._cachedPoolConfig':0x0400043C,
  'BaseCannedItem.ExchangeCannedItem':0x060005AA,
+ 'BaseCannedItem.UpdateDisplayInternal':0x060005A7,
  'BaseCannedItem.GetRequiredFruitIds':0x060005A6,
  'BaseCannedItem.CheckInventorySufficient':0x060005AC,
  'BaseCannedItem.UpdateTextColors':0x060005B1,
+ 'BaseCannedItem.UpdateButtonState':0x060005B0,
+ 'BaseCannedItem.GetPoolConfig':0x060005AF,
+ 'BaseCannedItem._cachedRequiredFruitIds':0x0400043E,
  'SteamInventoryManager.Instance':0x0A0002A3,
  'SteamInventoryManager.HasItem':0x0600047F,
+ 'SteamInventoryManager.CheckAutoRefresh':0x0600046C,
+ 'Type.SteamInventoryRefreshedMessage':0x0200007D,
+ 'Type.FruitUpdateMessage':0x0200003B,
+ 'Type.MarkDirtyMessage':0x02000043,
+ 'Type.LanguageChangedMessage':0x02000040,
  'DataManager.GetFruitInventoryCount':0x0600012F,
  'List.get_Item':0x0A0000D5,
  'List.Contains':0x0A00016C,
@@ -319,6 +329,11 @@ def make_auto_can_update_button_body():
     il.token(0x28,T['Object.op_Equality']); il.branch(0x39,'has_button'); il.b(0x2A)
     il.label('has_button')
     il.b(0x02); il.token(0x7B,T['BaseCannedItem._isExchanging']); il.branch(0x39,'check_inventory')
+    # Completion calls UpdateButtonState once while busy and again immediately
+    # after clearing busy. Stamp real game time here so the second call cannot
+    # recursively launch another exchange in the same completion callback.
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.token(0x28,T['Time.time']); il.b(0x69)
+    il.token(0x28,T['PlayerPrefs.SetInt'])
     il.b(0x02); il.token(0x7B,T['BaseCannedItem.ExchangeButton']); il.b(0x16)
     il.token(0x6F,T['Selectable.set_interactable']); il.b(0x2A)
     il.label('check_inventory')
@@ -337,25 +352,29 @@ def make_auto_can_update_button_body():
     il.token(0x72,T['KEY_AUTOCAN']); il.b(0x17); il.token(0x28,T['PlayerPrefs.GetInt']); il.branch(0x39,'return')
 
     # Fruit sufficiency alone is not enough: Steam exchange also consumes the
-    # pool's TokenId item. Avoid dispatching a request that must fail when the
-    # local Steam inventory has no such instance (the observed crash used 100002).
+    # pool's TokenId item. If the local cache is stale/missing, ask the game's
+    # own 30-second-throttled refresh routine to synchronize it, then defer.
     il.token(0x28,T['SteamInventoryManager.Instance'])
+    il.b(0x25)
     il.b(0x02); il.token(0x7B,T['BaseCannedItem._cachedPoolConfig']); il.token(0x7B,T['tPoolConfig.TokenId'])
-    il.b(0x17); il.token(0x6F,T['SteamInventoryManager.HasItem']); il.branch(0x39,'return')
+    il.b(0x17); il.token(0x6F,T['SteamInventoryManager.HasItem']); il.branch(0x3A,'has_token')
+    il.token(0x6F,T['SteamInventoryManager.CheckAutoRefresh']); il.branch(0x38,'return')
+    il.label('has_token'); il.b(0x26)
 
-    # One automatic exchange attempt per 300 frames, across every can widget.
-    # A stored frame from a previous process is larger than the new session's
-    # frame count; treat that as eligible so the first attempt is not delayed.
-    il.token(0x28,T['Time.frameCount'])
-    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-300); il.token(0x28,T['PlayerPrefs.GetInt'])
+    # One automatic exchange attempt per two real game seconds across every can
+    # widget. Frame-based cooldowns become effectively zero on uncapped clients.
+    # A stored value from an older process/build may exceed current session time;
+    # treat that as eligible so the first attempt is not delayed.
+    il.token(0x28,T['Time.time']); il.b(0x69)
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-2); il.token(0x28,T['PlayerPrefs.GetInt'])
     il.branch(0x3F,'exchange')
-    il.token(0x28,T['Time.frameCount'])
-    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-300); il.token(0x28,T['PlayerPrefs.GetInt'])
-    il.b(0x59); il.i4(300); il.branch(0x3F,'return')
+    il.token(0x28,T['Time.time']); il.b(0x69)
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.i4(-2); il.token(0x28,T['PlayerPrefs.GetInt'])
+    il.b(0x59); il.i4(2); il.branch(0x3F,'return')
     il.label('exchange')
     # Store the guard before invoking the async method. Its failure completion
     # may re-enter UpdateButtonState synchronously in this same frame.
-    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.token(0x28,T['Time.frameCount']); il.token(0x28,T['PlayerPrefs.SetInt'])
+    il.token(0x72,T['KEY_AUTOCAN_LAST_FRAME']); il.token(0x28,T['Time.time']); il.b(0x69); il.token(0x28,T['PlayerPrefs.SetInt'])
     emit_clear_auto_can_state(il)
     il.b(0x02); il.token(0x6F,T['BaseCannedItem.ExchangeCannedItem'])
     il.branch(0x38,'return')
@@ -389,6 +408,29 @@ def make_auto_can_update_button_body():
     il.token(0x72,T['KEY_AUTOCAN_APPLIED']); il.b(0x16); il.token(0x28,T['PlayerPrefs.SetInt'])
     il.label('return'); il.b(0x2A)
     return fat_body(il.assemble(),max_stack=4,local_sig=0x11000131,init_locals=True)
+
+
+def make_auto_can_handle_message_body():
+    # Preserve the original UI refresh messages and additionally retry F8 as soon
+    # as Steam inventory synchronization completes. Without this, a token that
+    # arrives after BaseCannedItem.Start is invisible until the next fruit change.
+    il=IL()
+    il.b(0x03); il.token(0x75,T['Type.FruitUpdateMessage']); il.branch(0x39,'mark_dirty')
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateDisplayInternal'])
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateButtonState']); il.b(0x17,0x2A)
+    il.label('mark_dirty')
+    il.b(0x03); il.token(0x75,T['Type.MarkDirtyMessage']); il.branch(0x39,'language')
+    il.b(0x02,0x02); il.token(0x6F,T['BaseCannedItem.GetPoolConfig']); il.token(0x7D,T['BaseCannedItem._cachedPoolConfig'])
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateDisplayInternal'])
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateButtonState']); il.b(0x17,0x2A)
+    il.label('language')
+    il.b(0x03); il.token(0x75,T['Type.LanguageChangedMessage']); il.branch(0x39,'inventory_refreshed')
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateDisplayInternal']); il.b(0x17,0x2A)
+    il.label('inventory_refreshed')
+    il.b(0x03); il.token(0x75,T['Type.SteamInventoryRefreshedMessage']); il.branch(0x39,'unhandled')
+    il.b(0x02); il.token(0x6F,T['BaseCannedItem.UpdateButtonState']); il.b(0x17,0x2A)
+    il.label('unhandled'); il.b(0x16,0x2A)
+    return fat_body(il.assemble(),max_stack=2)
 
 
 def make_legendary_cloth_config_body():
@@ -439,10 +481,19 @@ def patch(speed,outfile):
         ('FlowerPot','CheckAutoHarvest',make_check_auto_harvest_body()),
         ('FlowerPot','AutoReplantAfterHarvest',make_auto_replant_body()),
         ('BaseCannedItem','UpdateButtonState',make_auto_can_update_button_body()),
+        ('BaseCannedItem','HandleMessage',make_auto_can_handle_message_body()),
         ('tClothConfig','DeserializetClothConfig',make_legendary_cloth_config_body()),
     ]
     for typ,name,body in entries:
         rva=place(body); _,fieldoff=method_info(dn,typ,name); w32(fieldoff,rva)
+    # Keep the original async busy/await/completion lifecycle, but bypass its
+    # UI-only Button.interactable early return for validated automatic calls.
+    async_rva,_=method_info(dn,'<ExchangeCannedItem>d__13','MoveNext')
+    async_off=pe.get_offset_from_rva(async_rva)
+    original_gate=read_method_body_from_bytes(bytes(raw[async_off:async_off+2000]))
+    by_offset={ins.offset:ins for ins in original_gate.instructions}
+    assert str(by_offset[0x2D].opcode)=='ldloc.1' and str(by_offset[0x48].opcode)=='leave'
+    raw[async_off+0x2D:async_off+0x4D]=bytes((0x2B,0x1E))+b'\0'*30
     assert cursor < insert_size
     outfile.write_bytes(raw)
     return hashlib.sha256(raw).hexdigest()
@@ -489,6 +540,15 @@ autosupply_reentry_hashes={
     '50':'14ec38d2c8fa6160d85ab7c157dc1a72b51c7573cd668167205105efc4bd6669',
     '500':'1d842c602f728fa1fa8e0a2ee5c2d2710a4c21583b826e01db7d512fd855b0ff',
 }
+autocan_guard_hashes={
+    '1':'fd6acf0ea9d49185c835a0294199b99079c4c1a2c26ea1c74eee9c1e7616fba8',
+    '2':'a8a2785d186e21edbe7efdf072f838bcc2e086f1255305a229609d30778b1bd1',
+    '5':'527a38fbbbf0aa39a7c15a1285ebda6390f057d191be322fe5018132fa5b3efe',
+    '10':'99c8e58ec7f0cacbf083b0a56e2a665443455d086aa1760e0df2d1024803ccd3',
+    '20':'6a1cd0cf479f5c22810d8564a011ffa8bb534a9075db492a1e46fb32a6048f35',
+    '50':'ac836311c52e12bef8f8b25461a8a46cb57d4f68d5a99761066a41f54ab037c4',
+    '500':'4fd4bcb0d316faed686a4bcee791985d4193be451fcbf8d04722f2921c274625',
+}
 fast2_v17_hashes={
     '1':'33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f',
     '2':'0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5',
@@ -505,13 +565,13 @@ fast4_v17_hashes={
     '20':'0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11',
     '50':'281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32',
 }
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_autosupply_reentry':autosupply_reentry_hashes,'legacy_v17_autosupply_v1':autosupply_v1_hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17_autocan_guard':autocan_guard_hashes,'legacy_v17_autosupply_reentry':autosupply_reentry_hashes,'legacy_v17_autosupply_v1':autosupply_v1_hashes,'legacy_v17_every_frame':every_frame_v17_hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v17_fast2':fast2_v17_hashes,'legacy_v17_fast4':fast4_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
     raw=path.read_bytes(); pe=pefile.PE(data=raw); dn=dnfile.dnPE(str(path))
     parsed={}
-    targets=[('DataManager','Update'),('Player','ClickStealBtn'),('Plant','Grow'),('FlowerPot','CheckAutoHarvest'),('FlowerPot','AutoReplantAfterHarvest'),('BaseCannedItem','UpdateButtonState'),('tClothConfig','DeserializetClothConfig')]
+    targets=[('DataManager','Update'),('Player','ClickStealBtn'),('Plant','Grow'),('FlowerPot','CheckAutoHarvest'),('FlowerPot','AutoReplantAfterHarvest'),('BaseCannedItem','UpdateButtonState'),('BaseCannedItem','HandleMessage'),('<ExchangeCannedItem>d__13','MoveNext'),('tClothConfig','DeserializetClothConfig')]
     for typ,name in targets:
         rva,_=method_info(dn,typ,name); off=pe.get_offset_from_rva(rva)
         b=read_method_body_from_bytes(raw[off:off+10000]); assert b.code_size>0, (path,typ,name)
@@ -532,8 +592,13 @@ def validate(path,speed):
     assert T['KEY_STEAL_DONE'] in grow and T['PlayerPrefs.SetInt'] in grow
     assert any(str(i.opcode)=='ldc.r4' and abs(float(i.operand)-float(speed))<1e-6 for i in parsed[('Plant','Grow')].instructions)
     can=toks(('BaseCannedItem','UpdateButtonState'))
-    for tok in [T['PlayerPrefs.GetInt'],T['PlayerPrefs.SetInt'],T['Time.frameCount'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED'],T['KEY_AUTOCAN_LAST_FRAME'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['SteamInventoryManager.Instance'],T['SteamInventoryManager.HasItem'],T['tPoolConfig.TokenId'],T['Selectable.set_interactable']]: assert tok in can
+    for tok in [T['PlayerPrefs.GetInt'],T['PlayerPrefs.SetInt'],T['Time.time'],T['KEY_AUTOCAN'],T['KEY_AUTOCAN_TARGET'],T['KEY_AUTOCAN_COUNT'],T['KEY_AUTOCAN_APPLIED'],T['KEY_AUTOCAN_LAST_FRAME'],T['BaseCannedItem.CheckInventorySufficient'],T['BaseCannedItem.ExchangeCannedItem'],T['SteamInventoryManager.Instance'],T['SteamInventoryManager.HasItem'],T['SteamInventoryManager.CheckAutoRefresh'],T['tPoolConfig.TokenId'],T['Selectable.set_interactable']]: assert tok in can
     assert T['FlowerPot.RemovePlant'] not in can and T['FlowerPot.PlantFlower'] not in can
+    handle=toks(('BaseCannedItem','HandleMessage'))
+    for tok in [T['Type.SteamInventoryRefreshedMessage'],T['BaseCannedItem.UpdateButtonState']]: assert tok in handle
+    async_body=parsed[('<ExchangeCannedItem>d__13','MoveNext')]
+    async_by_offset={ins.offset:ins for ins in async_body.instructions}
+    assert str(async_by_offset[0x2D].opcode)=='br.s'
     rarity=parsed[('tClothConfig','DeserializetClothConfig')]
     rt=toks(('tClothConfig','DeserializetClothConfig'))
     assert T['tClothConfig.ctor'] in rt and T['tClothConfig.Rarity'] in rt
@@ -550,12 +615,13 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV17AutoSupplyReentryHashes',autosupply_reentry_hashes)+'\n\n'+map_block('legacyV17AutoSupplyV1Hashes',autosupply_v1_hashes)+'\n\n'+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17AutoCanGuardHashes',autocan_guard_hashes)+'\n\n'+map_block('legacyV17AutoSupplyReentryHashes',autosupply_reentry_hashes)+'\n\n'+map_block('legacyV17AutoSupplyV1Hashes',autosupply_v1_hashes)+'\n\n'+map_block('legacyV17EveryFrameHashes',every_frame_v17_hashes)+'\n\n'+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV17Fast2Hashes',fast2_v17_hashes)+'\n\n'+map_block('legacyV17Fast4Hashes',fast4_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
 block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
+block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoCanGuardHashes.Keys) {\n        if ($legacyV17AutoCanGuardHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoSupplyV1Hashes.Keys) {\n        if ($legacyV17AutoSupplyV1Hashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17AutoSupplyReentryHashes.Keys) {\n        if ($legacyV17AutoSupplyReentryHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
 block17=block17.replace('    return 0\n}', "    foreach ($key in $legacyV17EveryFrameHashes.Keys) {\n        if ($legacyV17EveryFrameHashes[$key] -eq $Hash) { return [int]$key }\n    }\n    return 0\n}")
@@ -616,6 +682,7 @@ F5：偷菜＋被偷菜
     - 再按一次恢复。
 
 F6：自动按键输送
+    - 每个游戏帧自动发送一次 A 键成长消息（60 FPS 下约每秒 60 次），不再使用间隔帧。
     - 关闭后停止 MOD 内部自动发送 A 键成长消息。
     - 不影响你的真实键盘、鼠标输入，也不会抢鼠标。
 
@@ -626,6 +693,13 @@ F7：自动种植收获
 
 F8：自动开罐
     - 关闭后停止自动连续开罐。
+    - 缺少开罐果实时，自动锁定一种缺料果实。
+    - 如果盆中不是目标作物，则自动铲除并种植所需作物，再自动收获补料。
+    - 换种后目标作物、成长阶段、进度和动画会立即按真实状态刷新。
+    - 补料期间即使 F7 暂停，F8 仍会完成目标作物的收获和补种。
+    - 自动兑换会先确认 Steam 开罐令牌存在；库存缓存未同步时会请求游戏原生刷新，并在刷新完成后自动重试。
+    - 使用全局防重入和 2 秒真实时间间隔，不受超高帧率影响；兑换失败时不会递归重试或拖死游戏。
+    - 自动补种只能补齐配方果实，不能生成 Steam 开罐令牌；账户确实没有令牌时会安全等待。
     - 罐头页面的手动“开罐”按钮仍可正常使用。
 
 开关规则
@@ -642,7 +716,7 @@ F8：自动开罐
 保留功能
 --------
 - 指定作物种一次后自动收获并持续补种同一种作物。
-- 1x / 2x / 5x / 10x / 20x / 50x 生长速度。
+- 1x / 2x / 5x / 10x / 20x / 50x / 500x（极高速）生长速度。
 - 离线自动偷菜和自动被偷菜。
 - 自动开罐。
 - 装饰在本地按橙色 Legendary 品质显示和分类。
@@ -651,14 +725,11 @@ F8：自动开罐
 ----
 1. 完全退出游戏。
 2. 解压后双击 1_INSTALL_MOD.cmd。
-3. 可直接覆盖 v1.6，无需先卸载；安装器会默认保留当前生长倍率。
-4. 安装完成后进入游戏，使用 F5～F8 分别开关四项功能。
+3. 安装完成后进入游戏，使用 F5～F8 分别开关四项功能。
 
 重要说明
 --------
 罐头奖励仍由 Steam Inventory 决定。橙色品质修改是客户端本地显示与分类覆盖，不能把 Steam 服务器库存里的普通物品真正改造成可交易的传奇物品。
-
-本包基于你提供的 Assembly-CSharp.dll 生成，并完成 PE、元数据、补丁方法体、关键调用和六种倍率 DLL 的静态校验。当前环境不能直接启动 Windows 游戏实机运行。
 '''
 (ROOT/'README_CN.txt').write_text('\ufeff'+readme,encoding='utf-8')
 notes=f'''v1.7 implementation notes
@@ -666,14 +737,20 @@ notes=f'''v1.7 implementation notes
   F5 steal/lost, F6 internal key delivery, F7 auto harvest/replant, F8 auto can opening.
 - Player.ClickStealBtn itself is gated, so the steal/lost feature is fully paused when disabled.
 - F5 steal/lost remains independent when F7 auto-farm is paused: a per-crop marker prevents repeated events on the same mature crop.
-- F7 gates harvesting and replanting only.
+- F7 gates normal harvesting and replanting; an active F8 supply target can still harvest/replant until its shortage is filled.
+- F8 locks one missing recipe fruit at a time and stores its required inventory count.
+- Inventory callbacks only select/release targets. Crop removal and planting run on the next DataManager.Update frame, after HarvestFlower has returned, preventing callback re-entry.
+- No private FlowerPot animation method is called. PlantFlower/Plant.Start and Grow/SetStage provide the real crop, stage, progress and animation visuals.
+- F8-off, completed and stale targets clear target/count/applied state so a changed can page cannot remain permanently locked.
 - Auto-can off preserves button interactability and manual opening.
-- Automatic can exchange writes a global frame guard before invoking the async
-  Steam exchange, preventing its synchronous failure callback from re-entering
-  the exchange path. Automatic retries are limited to once per 300 frames.
-- Automatic exchange verifies the configured Steam TokenId item exists before
-  sending the request; fruit sufficiency alone cannot trigger a guaranteed failure.
+- Automatic Steam exchange is guarded before the async call and limited to one attempt per two real game seconds, so uncapped frame rates cannot collapse the retry delay.
+- The original async lifecycle is retained, but its UI-only interactable gate no longer discards a validated automatic request. Busy completion restamps the guard before the final button refresh, preventing synchronous failure recursion.
+- Automatic exchange verifies that the configured Steam TokenId item exists. A missing/stale cache invokes the game's throttled refresh routine, and BaseCannedItem now retries on SteamInventoryRefreshedMessage.
+- Automatic fruit supply never fabricates Steam tokens; a genuinely missing token remains a safe no-op.
 - Existing v1.6 Legendary/orange local rarity override is preserved.
+- F6 internal A-key delivery sends exactly once per game frame with no interval-frame gate.
+- Adds a 500x extreme growth variant while retaining the original 1x through 50x choices.
+- Installer recognizes all earlier v1.7 hashes, including the 500x every-frame build, and preserves the selected growth multiplier during upgrade.
 
 SHA256 variants:
 {json.dumps(hashes,indent=2)}
