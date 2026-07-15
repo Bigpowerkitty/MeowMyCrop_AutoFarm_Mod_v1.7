@@ -10,12 +10,12 @@ $relativeTarget = "MeowMyCrop_Data\Managed\Assembly-CSharp.dll"
 $originalHash = "ad00d6dd37d0ee222e5506e9a4b697c5b5bf10fa3673843cde68b9760654e954"
 $legacyV10Hash = "6a9d6571fa9cf6f24194b565f18c5e4633941311929a929fdaf1fe70c8d6f9f2"
 $variantHashes = @{
-    "1" = "33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f"
-    "2" = "0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5"
-    "5" = "3c798803e2daa63450085f9a96f99d647e0e07c36c62ae3448b66f049639564f"
-    "10" = "9ebf1d260f3c6444963a2af855a7830ce993bb8cba048282fa5d37b6152334d8"
-    "20" = "206d4661a30b756f1cc4c8f5510afa55032b7d3522bd00e88315d943dec56332"
-    "50" = "ec50300f5f1eff5c97bf7819a41099814f3ea8c61eb6420a4a48b0f7d9415808"
+    "1" = "205747ca878c7bc0a556bb5f60a95bd12a0e0573cacc0dab677b36f2bae45d84"
+    "2" = "3cf164a47412ab6469fd760ba20a0e36c928b06927885f1c9b63d3b5fc0b3fbb"
+    "5" = "8d874640e02f50b67a9a8a303d3754b76577955651b6a0ac39f4c8c2d266d87a"
+    "10" = "a77aa04df07e0a1db950d07a93edebff75af99221a69481e55648074be0eedc6"
+    "20" = "0eb54ffc829a5ba2ed904364427e0dab523ad345ef450b3adf43da045f857e11"
+    "50" = "281d7846a28544af1153319d805e21c7f619bfe2addfacad3a87b559e147dd32"
 }
 
 $legacyV17Hashes = @{
@@ -25,6 +25,15 @@ $legacyV17Hashes = @{
     "10" = "c46f0b0bc8ee810badb351657cc514b3da7cd5a37b9e787986e8603ec4b25dd9"
     "20" = "9e0270b96bd1f22ec5acf8d02c8ac70e1af086a5373ed970c5985f678d2b97c4"
     "50" = "cbce1e4ea53e8b7b41ead71b87a08a7c299fe7e2f6f0e019037ff4f8dcc303b0"
+}
+
+$legacyV17Fast2Hashes = @{
+    "1" = "33f412d7fe9d5e87f717c7f664b4824f8c9f08a5b1d852d672a7619800ecad7f"
+    "2" = "0fd5a15099edc859f94aee5ed4e0eb8c4dcb2a930a7b2725061c3f0597a9c2d5"
+    "5" = "3c798803e2daa63450085f9a96f99d647e0e07c36c62ae3448b66f049639564f"
+    "10" = "9ebf1d260f3c6444963a2af855a7830ce993bb8cba048282fa5d37b6152334d8"
+    "20" = "206d4661a30b756f1cc4c8f5510afa55032b7d3522bd00e88315d943dec56332"
+    "50" = "ec50300f5f1eff5c97bf7819a41099814f3ea8c61eb6420a4a48b0f7d9415808"
 }
 
 $legacyV16Hashes = @{
@@ -263,6 +272,9 @@ function Detect-Installed-Speed([string]$Hash) {
 function Detect-Legacy-V17-Speed([string]$Hash) {
     foreach ($key in $legacyV17Hashes.Keys) {
         if ($legacyV17Hashes[$key] -eq $Hash) { return [int]$key }
+    }
+    foreach ($key in $legacyV17Fast2Hashes.Keys) {
+        if ($legacyV17Fast2Hashes[$key] -eq $Hash) { return [int]$key }
     }
     return 0
 }
