@@ -18,6 +18,15 @@ $variantHashes = @{
     "50" = "ec50300f5f1eff5c97bf7819a41099814f3ea8c61eb6420a4a48b0f7d9415808"
 }
 
+$legacyV17Hashes = @{
+    "1" = "1d47232d1f9d31fe91f127316cefa888d976d9100e04886e1bab257bc2e93c7d"
+    "2" = "c41d61989e1bb3d2f2e8e7582cd8adc3181c26e2375c78efa4e523d6a4f8ae8b"
+    "5" = "6085f4fa43687758feb30a6be5eea5ff9dccf9b613a559af7f16c12eb822d04c"
+    "10" = "c46f0b0bc8ee810badb351657cc514b3da7cd5a37b9e787986e8603ec4b25dd9"
+    "20" = "9e0270b96bd1f22ec5acf8d02c8ac70e1af086a5373ed970c5985f678d2b97c4"
+    "50" = "cbce1e4ea53e8b7b41ead71b87a08a7c299fe7e2f6f0e019037ff4f8dcc303b0"
+}
+
 $legacyV16Hashes = @{
     "1" = "fe4f3d8b26a5256fa000b5b7fe01600d7f661688b404edfdf50f11c861ffdf42"
     "2" = "9da1f8cf8aea029c529ebf6879dd9cd0b9772ea8b5c128d702281a5d070d3718"
@@ -251,6 +260,13 @@ function Detect-Installed-Speed([string]$Hash) {
     return 0
 }
 
+function Detect-Legacy-V17-Speed([string]$Hash) {
+    foreach ($key in $legacyV17Hashes.Keys) {
+        if ($legacyV17Hashes[$key] -eq $Hash) { return [int]$key }
+    }
+    return 0
+}
+
 function Detect-Legacy-V16-Speed([string]$Hash) {
     foreach ($key in $legacyV16Hashes.Keys) {
         if ($legacyV16Hashes[$key] -eq $Hash) { return [int]$key }
@@ -310,6 +326,7 @@ try {
     $legacyV14Speed = Detect-Legacy-V14-Speed $currentHash
     $legacyV15Speed = Detect-Legacy-V15-Speed $currentHash
     $legacyV16Speed = Detect-Legacy-V16-Speed $currentHash
+    $legacyV17Speed = Detect-Legacy-V17-Speed $currentHash
     $isLegacyV10 = ($currentHash -eq $legacyV10Hash)
     Write-Host "Game folder: $root"
     Write-Host "Current DLL SHA256: $currentHash"
@@ -325,13 +342,18 @@ try {
         exit 0
     }
 
-    if (($currentHash -ne $originalHash) -and ($installedSpeed -eq 0) -and ($legacyV12Speed -eq 0) -and ($legacyV13Speed -eq 0) -and ($legacyV14Speed -eq 0) -and ($legacyV15Speed -eq 0) -and ($legacyV16Speed -eq 0) -and (-not $isLegacyV10)) {
+    if (($currentHash -ne $originalHash) -and ($installedSpeed -eq 0) -and ($legacyV12Speed -eq 0) -and ($legacyV13Speed -eq 0) -and ($legacyV14Speed -eq 0) -and ($legacyV15Speed -eq 0) -and ($legacyV16Speed -eq 0) -and ($legacyV17Speed -eq 0) -and (-not $isLegacyV10)) {
         throw 'This Assembly-CSharp.dll is neither the supported original file nor a known v1.0/v1.2/v1.3/v1.4/v1.5/v1.6/v1.7 MOD file. The game may have updated or another MOD may already modify it.'
     }
     if ($isLegacyV10) {
         Write-Host 'Detected v1.0 MOD. It can be upgraded directly to v1.7.' -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath $backup)) { throw 'v1.0 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
         if ((Get-Hash $backup) -ne $originalHash) { throw 'v1.0 backup hash is unexpected. It was not overwritten for safety.' }
+    }
+    if ($legacyV17Speed -gt 0) {
+        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating to accelerated automatic key delivery." -ForegroundColor Yellow
+        if (-not (Test-Path -LiteralPath $backup)) { throw 'An earlier v1.7 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
+        if ((Get-Hash $backup) -ne $originalHash) { throw 'Earlier v1.7 backup hash is unexpected. It was not overwritten for safety.' }
     }
     if ($legacyV16Speed -gt 0) {
         Write-Host "Detected v1.6 (${legacyV16Speed}x). v1.7 adds four independent persistent feature switches." -ForegroundColor Yellow
@@ -359,7 +381,7 @@ try {
         if ((Get-Hash $backup) -ne $originalHash) { throw 'v1.2 backup hash is unexpected. It was not overwritten for safety.' }
     }
 
-    $defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV16Speed -gt 0) { $legacyV16Speed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed } elseif ($legacyV14Speed -gt 0) { $legacyV14Speed } elseif ($legacyV13Speed -gt 0) { $legacyV13Speed } elseif ($legacyV12Speed -gt 0) { $legacyV12Speed } else { 10 }
+    $defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV17Speed -gt 0) { $legacyV17Speed } elseif ($legacyV16Speed -gt 0) { $legacyV16Speed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed } elseif ($legacyV14Speed -gt 0) { $legacyV14Speed } elseif ($legacyV13Speed -gt 0) { $legacyV13Speed } elseif ($legacyV12Speed -gt 0) { $legacyV12Speed } else { 10 }
     $speed = Select-Speed $defaultSpeed
     $modDll = Join-Path $packageRoot ("ModFiles\Assembly-CSharp_{0}x.dll" -f $speed)
     if (-not (Test-Path -LiteralPath $modDll)) { throw "Missing MOD variant: $modDll" }

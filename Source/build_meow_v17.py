@@ -337,7 +337,15 @@ for s in speeds:
     hashes[str(s)]=patch(s,out)
 orig_hash=hashlib.sha256(SRC.read_bytes()).hexdigest()
 v16_hashes=json.loads((V16ROOT/'hashes.json').read_text(encoding='utf-8-sig'))['variants']
-(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
+pre_accel_v17_hashes={
+    '1':'1d47232d1f9d31fe91f127316cefa888d976d9100e04886e1bab257bc2e93c7d',
+    '2':'c41d61989e1bb3d2f2e8e7582cd8adc3181c26e2375c78efa4e523d6a4f8ae8b',
+    '5':'6085f4fa43687758feb30a6be5eea5ff9dccf9b613a559af7f16c12eb822d04c',
+    '10':'c46f0b0bc8ee810badb351657cc514b3da7cd5a37b9e787986e8603ec4b25dd9',
+    '20':'9e0270b96bd1f22ec5acf8d02c8ac70e1af086a5373ed970c5985f678d2b97c4',
+    '50':'cbce1e4ea53e8b7b41ead71b87a08a7c299fe7e2f6f0e019037ff4f8dcc303b0',
+}
+(ROOT/'hashes.json').write_text(json.dumps({'original':orig_hash,'variants':hashes,'legacy_v17':pre_accel_v17_hashes,'legacy_v16':v16_hashes},indent=2),encoding='utf-8')
 
 # Static validation: all methods parse, switch checks and key calls are present.
 def validate(path,speed):
@@ -380,23 +388,29 @@ def map_block(name,m):
     return '\n'.join(lines)
 ps1=re.sub(r'\$variantHashes = @\{.*?\n\}',map_block('variantHashes',hashes),ps1,count=1,flags=re.S)
 idx=ps1.find('$legacyV15Hashes = @{')
-ps1=ps1[:idx]+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
+ps1=ps1[:idx]+map_block('legacyV17Hashes',pre_accel_v17_hashes)+'\n\n'+map_block('legacyV16Hashes',v16_hashes)+'\n\n'+ps1[idx:]
 needle='function Detect-Legacy-V15-Speed([string]$Hash) {'
 pos=ps1.find(needle); end=ps1.find('\n}\n',pos)+3
 block=ps1[pos:end]
 block16=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V16-Speed').replace('$legacyV15Hashes','$legacyV16Hashes')
-ps1=ps1[:pos]+block16+'\n'+ps1[pos:]
-ps1=ps1.replace('$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash', '$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash\n    $legacyV16Speed = Detect-Legacy-V16-Speed $currentHash')
-ps1=ps1.replace('($legacyV15Speed -eq 0) -and (-not $isLegacyV10)', '($legacyV15Speed -eq 0) -and ($legacyV16Speed -eq 0) -and (-not $isLegacyV10)')
+block17=block.replace('Detect-Legacy-V15-Speed','Detect-Legacy-V17-Speed').replace('$legacyV15Hashes','$legacyV17Hashes')
+ps1=ps1[:pos]+block17+'\n'+block16+'\n'+ps1[pos:]
+ps1=ps1.replace('$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash', '$legacyV15Speed = Detect-Legacy-V15-Speed $currentHash\n    $legacyV16Speed = Detect-Legacy-V16-Speed $currentHash\n    $legacyV17Speed = Detect-Legacy-V17-Speed $currentHash')
+ps1=ps1.replace('($legacyV15Speed -eq 0) -and (-not $isLegacyV10)', '($legacyV15Speed -eq 0) -and ($legacyV16Speed -eq 0) -and ($legacyV17Speed -eq 0) -and (-not $isLegacyV10)')
 needle='    if ($legacyV15Speed -gt 0) {'
-insert16='''    if ($legacyV16Speed -gt 0) {
+insert_upgrades='''    if ($legacyV17Speed -gt 0) {
+        Write-Host "Detected earlier v1.7 (${legacyV17Speed}x). Updating to accelerated automatic key delivery." -ForegroundColor Yellow
+        if (-not (Test-Path -LiteralPath $backup)) { throw 'An earlier v1.7 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
+        if ((Get-Hash $backup) -ne $originalHash) { throw 'Earlier v1.7 backup hash is unexpected. It was not overwritten for safety.' }
+    }
+    if ($legacyV16Speed -gt 0) {
         Write-Host "Detected v1.6 (${legacyV16Speed}x). v1.7 adds four independent persistent feature switches." -ForegroundColor Yellow
         if (-not (Test-Path -LiteralPath $backup)) { throw 'v1.6 is installed but its original backup was not found. Use Steam Verify Integrity first, then install v1.7.' }
         if ((Get-Hash $backup) -ne $originalHash) { throw 'v1.6 backup hash is unexpected. It was not overwritten for safety.' }
     }
 '''
-ps1=ps1.replace(needle,insert16+needle,1)
-ps1=ps1.replace('$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }', '$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV16Speed -gt 0) { $legacyV16Speed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }')
+ps1=ps1.replace(needle,insert_upgrades+needle,1)
+ps1=ps1.replace('$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }', '$defaultSpeed = if ($installedSpeed -gt 0) { $installedSpeed } elseif ($legacyV17Speed -gt 0) { $legacyV17Speed } elseif ($legacyV16Speed -gt 0) { $legacyV16Speed } elseif ($legacyV15Speed -gt 0) { $legacyV15Speed }')
 ps1=ps1.replace('MOD Manager v1.6', 'MOD Manager v1.7')
 ps1=ps1.replace('known v1.0/v1.2/v1.3/v1.4/v1.5/v1.6 MOD file', 'known v1.0/v1.2/v1.3/v1.4/v1.5/v1.6/v1.7 MOD file')
 ps1=ps1.replace('upgraded directly to v1.6', 'upgraded directly to v1.7')
