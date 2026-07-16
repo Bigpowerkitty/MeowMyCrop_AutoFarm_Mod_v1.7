@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 title Meow My Crop MOD Speed Settings
 cd /d "%~dp0"
 echo =====================================================
-echo Meow My Crop MOD v1.7 - CHANGE GROWTH SPEED
+echo Meow My Crop MOD v1.8 - CHANGE GROWTH SPEED
 echo Close the game before changing speed.
 echo =====================================================
 echo.

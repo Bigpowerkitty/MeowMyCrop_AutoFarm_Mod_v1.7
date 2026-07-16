@@ -1,30 +1,22 @@
-v1.7 implementation notes
-- Adds four independent persistent PlayerPrefs switches, all default enabled:
-  F5 steal/lost, F6 internal key delivery, F7 auto harvest/replant, F8 auto can opening.
-- Player.ClickStealBtn itself is gated, so the steal/lost feature is fully paused when disabled.
-- F5 steal/lost remains independent when F7 auto-farm is paused: a per-crop marker prevents repeated events on the same mature crop.
-- F7 gates normal harvesting and replanting; an active F8 supply target can still harvest/replant until its shortage is filled.
-- F8 locks one missing recipe fruit at a time and stores its required inventory count.
-- Inventory callbacks only select/release targets. Crop removal and planting run on the next DataManager.Update frame, after HarvestFlower has returned, preventing callback re-entry.
-- No private FlowerPot animation method is called. PlantFlower/Plant.Start and Grow/SetStage provide the real crop, stage, progress and animation visuals.
-- F8-off, completed and stale targets clear target/count/applied state so a changed can page cannot remain permanently locked.
-- Auto-can off preserves button interactability and manual opening.
-- Automatic Steam exchange is guarded before the async call and limited to one attempt per two real game seconds, so uncapped frame rates cannot collapse the retry delay.
-- The original async lifecycle is retained, but its UI-only interactable gate no longer discards a validated automatic request. Busy completion restamps the guard before the final button refresh, preventing synchronous failure recursion.
-- Automatic exchange verifies that the configured Steam TokenId item exists. A missing/stale cache invokes the game's throttled refresh routine, and BaseCannedItem now retries on SteamInventoryRefreshedMessage.
-- Automatic fruit supply never fabricates Steam tokens; a genuinely missing token remains a safe no-op.
-- Existing v1.6 Legendary/orange local rarity override is preserved.
-- F6 internal A-key delivery sends exactly once per game frame with no interval-frame gate.
-- Adds a 500x extreme growth variant while retaining the original 1x through 50x choices.
-- Installer recognizes all earlier v1.7 hashes, including the 500x every-frame build, and preserves the selected growth multiplier during upgrade.
+MeowMOD v1.8 implementation notes
+- Rebuilt from the supported original Assembly-CSharp.dll SHA256 ad00d6dd37d0ee222e5506e9a4b697c5b5bf10fa3673843cde68b9760654e954.
+- F5 local automation has independent persisted total_stolen_fruits and total_lost_fruits counters, each capped at 100.
+- Exact counter log strings are installed by equal-length #US replacement without moving metadata offsets.
+- Original remote/manual online Player.ClickStealBtn behavior is preserved outside the local F5 branch.
+- Per-crop duplicate protection resets only for a newly growing local crop; remote crops cannot unlock it.
+- F8 is no longer forced enabled at process start. All four toggle values and the selected multiplier are persisted.
+- Auto-can shortage analysis scans the complete required-fruit list.
+- SteamInventoryManager.GetFirstCachedInstance, BaseCannedItem.ExchangeCannedItem, and its async state machine retain the supported original behavior.
+- Automatic opening still uses active-widget filtering, a three-state retry latch, event de-duplication, and the original manual button path.
+- Legendary/orange decoration rarity remains a local display/classification override only.
 
 SHA256 variants:
 {
-  "1": "d48644adb5a4d1c8d7d1181c7ceda3666e93375cadf647170ef5e7ffd7273a93",
-  "2": "998de791e226b9b1b5112a87b0ae79de83140ea3f6b42df212887959f18cee6e",
-  "5": "204d6ab316ff23c43bce5b10f63fde17b52eabddff0fd476fa8856f52799d97f",
-  "10": "6f6f536d24e21ed3e8c8c9ef06a970ddb2c7264c971d3942abaf04c1f388f85f",
-  "20": "d62fb064e7fdab0843f626b9ebdccbd66c47ed803a857ef6af66f2bf43509e25",
-  "50": "781910d8659a1ffeecf786bc62aa70dbdd36229dc84dee0ebea799ccefd812f6",
-  "500": "568c54de3303c7d682390c2eab20f6cd3edcbc94cf30364fc1fa280dcf48021c"
+  "1": "735c86b2352542ed64f311bc33aeae450722b9ebe2400233155a57897293aea6",
+  "2": "c490741c09105c593a98ba1e8b26d63dcfd7a85434399f7c59bc01d371f8df01",
+  "5": "9ffb983374d9dd7104e0906e30b5d9958978be2ccc63f853ec65623dbebafaf7",
+  "10": "debf111307d5c622d84949cb120cac7a4e84d79aae42a122c375dff9458e82af",
+  "20": "346f570f10d6f9c430755aa68aad10dacbbd1e9eb5aaacf16790125cfe08f5b9",
+  "50": "16a6d3b5971cbe2a168478ab83307841a6739bbb2aabab8ab9929995b3bcccfb",
+  "500": "de750fd3cff524d98818185d0be7a6295a0f48429c2f17a5e3f657440fc113ab"
 }

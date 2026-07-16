@@ -1,33 +1,10 @@
-# Meow My Crop!（喵了个菜！）AutoFarm MOD v1.7
+# MeowMOD v1.8 for Meow My Crop!
 
-四项功能可独立控制，并会记住开关状态。
+- F5: local automatic steal and being-stolen simulation, independently persisted and capped at 100 each. Exact logs: `[AutoSteal] n/100` and `[AutoBeingStolen] n/100`.
+- F6: internal A-key growth delivery without moving or capturing the mouse.
+- F7: automatic harvest and replant.
+- F8: automatic can shortage detection, complete recipe scanning, crop replacement, supply harvest, and guarded automatic opening.
+- F5 through F8 are independent and persisted. The selected 1x/2x/5x/10x/20x/50x/500x growth multiplier is persisted too.
+- The original remote/manual online steal path and original manual can-opening path remain available.
 
-## 独立开关
-
-- **F5：偷菜＋被偷菜**：关闭后暂停自动偷菜及被偷菜事件。
-- **F6：自动按键输送**：每个游戏帧发送一次 A 键成长消息，不影响真实键盘和鼠标。
-- **F7：自动种植收获**：控制普通自动收获与补种。
-- **F8：自动开罐＋缺料补种**：缺少开罐果实时，会锁定一种缺料果实；若盆中作物不对，则自动铲除、种植目标作物、收获补料并继续开罐。
-
-自动换种后会立即显示目标作物；作物阶段、成长进度和换种动画与实际状态同步。补料期间即使 F7 暂停，F8 仍可完成目标果实的收获与补种。手动开罐按钮仍可使用。
-
-自动兑换会先确认 Steam 开罐令牌确实存在；若本地库存缓存尚未同步，会请求游戏原生的 Steam 库存刷新，并在刷新完成后自动重试。兑换使用全局防重入和 2 秒真实时间间隔，不受超高帧率影响；Steam 立即返回失败时也不会递归重试或拖死游戏。
-
-自动补种只能补齐配方果实，不能生成 Steam 开罐令牌。若 Steam 账户确实没有该罐所需的令牌，F8 会安全等待，不会伪造或修改 Steam 物品。
-
-四项功能首次运行均默认开启，状态通过 Unity PlayerPrefs 保存。
-
-## 生长倍率
-
-支持 1x / 2x / 5x / 10x / 20x / 50x / 500x（极高速）。
-
-## 安装
-
-1. 完全退出游戏。
-2. 下载并解压项目文件。
-3. 双击 `1_INSTALL_MOD.cmd`。
-4. 安装完成后进入游戏，使用 F5～F8 分别开关四项功能。
-
-## 重要说明
-
-罐头奖励仍由 Steam Inventory 决定。橙色品质修改是客户端本地显示与分类覆盖，不能把 Steam 服务器库存里的普通物品真正改造成可交易的传奇物品。
+Run `1_INSTALL_MOD.cmd` after fully closing the game. Local Legendary/orange decoration rarity is a client display/classification override only; it does not alter Steam server inventory rarity.

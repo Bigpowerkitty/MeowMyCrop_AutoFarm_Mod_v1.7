@@ -3,7 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 title Meow My Crop MOD Uninstaller
 cd /d "%~dp0"
 echo =====================================================
-echo Meow My Crop MOD v1.7 - UNINSTALL
+echo Meow My Crop MOD v1.8 - UNINSTALL
 echo =====================================================
 echo.
 powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Tools\ModManager.ps1" -Mode Uninstall

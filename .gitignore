@@ -1,0 +1,8 @@
+# Local installer state and runtime logs
+last_game_path.txt
+mod_manager.log
+
+# Local game backups and Python caches
+*.meowmod_backup
+__pycache__/
+*.pyc
